@@ -34,7 +34,7 @@ with st.sidebar:
     elif password != "":
         st.error("암호가 틀렸습니다.")
 
-st.title("🎡 우리 반 이미지 돌림판 (L7-2)")
+st.title("🎡 Rullette Game (L7-2)")
 
 # 📌 [경로 수정 핵심부] L7-2 폴더 안의 이미지들을 불러와서 웹용(Base64)으로 인코딩
 bg_images_encoded = []
