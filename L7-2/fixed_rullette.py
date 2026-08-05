@@ -42,7 +42,7 @@ missing_files = []
 
 for i in range(1, st.session_state.num_items + 1):
     # 파일 이름 규칙 (예: L7-2-1.jpg)
-    file_name = f"L7-2-{i}.jpg" 
+    file_name = f"L7-1-{i}.jpg" 
     # 실제 깃허브에서 찾아갈 폴더 경로 지정 (L7-2/L7-2-1.jpg)
     file_path = f"L7-2/{file_name}" 
     
