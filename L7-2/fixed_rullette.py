@@ -60,7 +60,7 @@ for i in range(1, st.session_state.num_items + 1):
 if missing_files:
     st.warning(f"⚠️ 깃허브 저장소에 {missing_files} 파일이 없거나 확장자(.jpg/.png)가 다릅니다. 확인해 주세요.")
 else:
-    st.write(f"현재 이 돌림판에는 **{st.session_state.num_items}개**의 선택지가 세팅되어 있습니다.")
+    st.write(f"현재 이 돌림판에는 **{st.session_state.num_items}개**의 선택지가 세팅되어 있습니다. 3초간 돌고 4초간 보여줍니다.")
 
     js_images = json.dumps(bg_images_encoded)
     spin_duration_ms = st.session_state.spin_time * 1000
