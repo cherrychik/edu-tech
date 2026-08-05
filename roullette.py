@@ -63,7 +63,8 @@ else:
     def draw_wheel(highlight_idx=None):
         fig, ax = plt.subplots(figsize=(5, 5))
         sizes = [100 / num_items] * num_items
-        colors = plt.cm.get_cmap["tab20"](np.linspace(0, 1, num_items))
+        colors = plt.colormaps["tab20"](np.linspace(0, 1, num_items))
+
         
         if highlight_idx is not None:
             colors = ['#FF4B4B' if i == highlight_idx else '#E0E0E0' for i in range(num_items)]
