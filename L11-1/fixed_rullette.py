@@ -34,17 +34,17 @@ with st.sidebar:
     elif password != "":
         st.error("암호가 틀렸습니다.")
 
-st.title("🎡 Rullette Game (L7-2)")
+st.title("🎡 Rullette Game (L11-1)")
 
-# 📌 [경로 수정 핵심부] L7-2 폴더 안의 이미지들을 불러와서 웹용(Base64)으로 인코딩
+# 📌 [경로 수정 핵심부] L11-1 폴더 안의 이미지들을 불러와서 웹용(Base64)으로 인코딩
 bg_images_encoded = []
 missing_files = []
 
 for i in range(1, st.session_state.num_items + 1):
-    # 파일 이름 규칙 (예: L7-2-1.jpg)
-    file_name = f"L7-1-{i}.jpg" 
-    # 실제 깃허브에서 찾아갈 폴더 경로 지정 (L7-2/L7-2-1.jpg)
-    file_path = f"L7-2/{file_name}" 
+    # 파일 이름 규칙 (예: L11-1-1.jpg)
+    file_name = f"L11-1-{i}.jpg" 
+    # 실제 깃허브에서 찾아갈 폴더 경로 지정 (L11-1/L11-1-1.jpg)
+    file_path = f"L11-1/{file_name}" 
     
     if os.path.exists(file_path):
         with open(file_path, "rb") as f:
