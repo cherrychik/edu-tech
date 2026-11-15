@@ -6,17 +6,10 @@ import base64
 from github import Github
 from github import GithubException
 
-# 0. Streamlit 기본 페이지 및 세션 초기화
+# 0. Streamlit 기본 페이지 설정
 st.set_page_config(page_title="우리 반 맞춤형 메모리 게임", layout="centered")
 
-if "game_mode" not in st.session_state:
-    st.session_state.game_mode = "다른 그림 연결 (A-B 짝짓기)"
-if "num_items" not in st.session_state:
-    st.session_state.num_items = 4
-if "preview_time" not in st.session_state:
-    st.session_state.preview_time = 3
-
-# 1. 깃허브 연동 및 파일 입출력 함수
+# 1. 깃허브 연동 및 설정/이미지 입출력 함수
 def get_github_repo():
     try:
         token = st.secrets.get("GITHUB_TOKEN")
@@ -28,8 +21,55 @@ def get_github_repo():
     except Exception:
         return None
 
+def load_config_from_github():
+    """GitHub의 L11-2/config.json에서 모든 선생님이 공유할 게임 설정을 불러옵니다."""
+    default_config = {
+        "game_mode": "다른 그림 연결 (A-B 짝짓기)",
+        "num_items": 4,
+        "preview_time": 3
+    }
+    repo = get_github_repo()
+    config_path = "L11-2/config.json"
+    
+    if repo is not None:
+        try:
+            content = repo.get_contents(config_path)
+            return json.loads(content.decoded_content.decode("utf-8"))
+        except Exception:
+            pass
+            
+    if os.path.exists(config_path):
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+            
+    return default_config
+
+def save_config_to_github(config_data):
+    """변경된 게임 설정을 GitHub의 L11-2/config.json에 영구 저장합니다."""
+    repo = get_github_repo()
+    config_path = "L11-2/config.json"
+    json_str = json.dumps(config_data, ensure_ascii=False, indent=2)
+    
+    if repo is None:
+        os.makedirs("L11-2", exist_ok=True)
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write(json_str)
+        return True
+
+    try:
+        try:
+            content = repo.get_contents(config_path)
+            repo.update_file(config_path, "Update game config via Admin", json_str, content.sha)
+        except GithubException as e:
+            if e.status == 404:
+                repo.create_file(config_path, "Create game config via Admin", json_str)
+        return True
+    except Exception as e:
+        st.error(f"GitHub 설정 저장 실패: {e}")
+        return False
+
 def save_image_to_github(file_bytes, file_name):
-    """업로드된 이미지 파일을 GitHub의 L11-2 폴더 안에 저장합니다."""
+    """업로드된 이미지 파일을 GitHub의 L11-2 폴더 안에 영구 저장합니다."""
     repo = get_github_repo()
     file_path = f"L11-2/{file_name}"
     
@@ -73,51 +113,72 @@ def load_single_image(file_name):
         return f"data:image/jpeg;base64,{base64_encoded}"
     return None
 
-# 2. 사이드바: 교사용 설정 및 모드 선택 창
+# 서버에 저장된 공통 설정 불러오기
+shared_config = load_config_from_github()
+
+# 2. 사이드바: 교사용 설정 및 일괄 저장 창
 with st.sidebar:
     st.header("🔒 교사 설정 메뉴")
     password = st.text_input("관리자 암호", type="password")
     
     if password == "1234":
         st.success("인증 성공!")
-        st.subheader("⚙️ 게임 방식 및 옵션 설정")
+        st.subheader("⚙️ 공통 게임 옵션 설정")
         
-        st.session_state.game_mode = st.radio(
+        selected_mode = st.radio(
             "🎴 카드 매칭 방식 선택",
             ["같은 그림 복제 (1장씩 등록)", "다른 그림 연결 (A-B 짝짓기)"],
-            index=0 if st.session_state.game_mode == "같은 그림 복제 (1장씩 등록)" else 1
+            index=0 if shared_config.get("game_mode") == "같은 그림 복제 (1장씩 등록)" else 1
         )
         
-        st.session_state.num_items = st.number_input("🖼️ 카드 짝(Pair) 개수", min_value=2, max_value=20, value=st.session_state.num_items)
-        st.session_state.preview_time = st.number_input("⏱️ 시작 시 카드 노출 시간 (초)", min_value=1, max_value=10, value=st.session_state.preview_time)
+        selected_num = st.number_input("🖼️ 카드 짝(Pair) 개수", min_value=2, max_value=20, value=shared_config.get("num_items", 4))
+        selected_time = st.number_input("⏱️ 시작 시 카드 노출 시간 (초)", min_value=1, max_value=10, value=shared_config.get("preview_time", 3))
         
-        st.subheader("📤 이미지 일괄 업로드")
-        if st.session_state.game_mode == "같은 그림 복제 (1장씩 등록)":
-            st.markdown(f"**L11-2-1.jpg** ~ **L11-2-{st.session_state.num_items}.jpg** 파일들을 한 번에 올려주세요.")
+        st.subheader("📤 새 이미지 업로드 (선택 사항)")
+        if selected_mode == "같은 그림 복제 (1장씩 등록)":
+            st.markdown(f"**L11-2-1.jpg** ~ **L11-2-{selected_num}.jpg** 파일들을 올려주세요.")
         else:
-            st.markdown(f"**L11-2-1-a.jpg, L11-2-1-b.jpg** ~ **L11-2-{st.session_state.num_items}-a.jpg, L11-2-{st.session_state.num_items}-b.jpg** 파일들을 한 번에 올려주세요.")
+            st.markdown(f"**L11-2-1-a.jpg, L11-2-1-b.jpg** ~ **L11-2-{selected_num}-a.jpg, L11-2-{selected_num}-b.jpg** 파일들을 올려주세요.")
         
         uploaded_files = st.file_uploader("이미지 파일 선택 (.jpg)", type=["jpg", "jpeg"], accept_multiple_files=True)
         
-        if uploaded_files:
-            if st.button("💾 업로드된 파일 GitHub에 동기화 저장"):
-                success_count = 0
+        if st.button("💾 설정 및 이미지 GitHub에 영구 저장"):
+            # 1) 게임 옵션 설정 저장
+            new_config = {
+                "game_mode": selected_mode,
+                "num_items": selected_num,
+                "preview_time": selected_time
+            }
+            config_saved = save_config_to_github(new_config)
+            
+            # 2) 새로 업로드한 파일이 있다면 함께 저장
+            img_count = 0
+            if uploaded_files:
                 for uploaded_file in uploaded_files:
                     file_bytes = uploaded_file.read()
                     if save_image_to_github(file_bytes, uploaded_file.name):
-                        success_count += 1
-                st.success(f"총 {success_count}개의 파일이 GitHub 저장소에 안전하게 저장되었습니다!")
+                        img_count += 1
+                        
+            if config_saved:
+                if img_count > 0:
+                    st.success(f"게임 설정과 {img_count}개의 이미지가 GitHub에 영구 저장되었습니다!")
+                else:
+                    st.success("게임 설정이 GitHub에 영구 저장되었습니다! (기존 이미지 유지)")
                 st.rerun()
                 
     elif password != "":
         st.error("암호가 틀렸습니다.")
 
-# 3. 선택된 모드에 따른 카드 쌍 데이터 구성
+# 3. 저장된 공통 설정(shared_config)을 기준으로 카드 쌍 데이터 구성
+current_mode = shared_config.get("game_mode", "다른 그림 연결 (A-B 짝짓기)")
+current_num = shared_config.get("num_items", 4)
+current_time = shared_config.get("preview_time", 3)
+
 pairs_data = []
 missing_files = []
 
-for i in range(1, st.session_state.num_items + 1):
-    if st.session_state.game_mode == "같은 그림 복제 (1장씩 등록)":
+for i in range(1, current_num + 1):
+    if current_mode == "같은 그림 복제 (1장씩 등록)":
         f_name = f"L11-2-{i}.jpg"
         img_b64 = load_single_image(f_name)
         if img_b64:
@@ -143,12 +204,12 @@ st.title("🧠 Memory Match Game (L11-2)")
 if missing_files:
     st.warning(f"⚠️ 현재 일부 카드 이미지 파일({missing_files})이 준비되지 않았습니다. 관리자 창에서 업로드를 완료해 주세요.")
 else:
-    st.write(f"현재 모드: **{st.session_state.game_mode}** | 총 **{st.session_state.num_items}쌍({st.session_state.num_items * 2}장)**의 카드가 준비되었습니다.")
+    st.write(f"현재 모드: **{current_mode}** | 총 **{current_num}쌍({current_num * 2}장)**의 카드가 준비되었습니다.")
 
     js_pairs = json.dumps(pairs_data)
-    preview_duration_ms = st.session_state.preview_time * 1000
+    preview_duration_ms = current_time * 1000
 
-    # 💡 [중요] 아래 2부 코드 블록(html_code = f\"\"\")을 이 자리에 바로 이어 붙여주세요.
+    # 💡 바로 이 아래에 기존 2부 코드(html_code = f\"\"\")가 스페이스 4칸 위치로 이어집니다.
     html_code = f"""
     <!DOCTYPE html>
     <html>
@@ -185,7 +246,7 @@ else:
     <body>
 
         <button class="control-btn" id="startBtn" onclick="startGame()">🎮 게임 시작! (위치 기억하기)</button>
-        <div class="status-panel" id="status">짝 맞춘 횟수: 0 / {st.session_state.num_items}</div>
+        • <div class="status-panel" id="status">짝 맞춘 횟수: 0 / {current_num}</div>
         
         <div class="grid-container" id="cardGrid"></div>
 
