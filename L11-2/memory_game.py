@@ -1,8 +1,6 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import json
-import time
-import random
 import os
 import base64
 from github import Github
@@ -11,12 +9,14 @@ from github import GithubException
 # 0. Streamlit 기본 페이지 및 세션 초기화
 st.set_page_config(page_title="우리 반 맞춤형 메모리 게임", layout="centered")
 
+if "game_mode" not in st.session_state:
+    st.session_state.game_mode = "다른 그림 연결 (A-B 짝짓기)"
 if "num_items" not in st.session_state:
-    st.session_state.num_items = 4     # 기본 카드 짝 개수 (예: 4쌍 = 총 8장)
+    st.session_state.num_items = 4
 if "preview_time" not in st.session_state:
-    st.session_state.preview_time = 3  # 시작 시 전체 카드 보여주는 시간 (초)
+    st.session_state.preview_time = 3
 
-# 1. 깃허브 연동 및 파일 업로드/다운로드 함수
+# 1. 깃허브 연동 및 파일 입출력 함수
 def get_github_repo():
     try:
         token = st.secrets.get("GITHUB_TOKEN")
@@ -51,14 +51,9 @@ def save_image_to_github(file_bytes, file_name):
         st.error(f"GitHub 이미지 저장 실패 ({file_name}): {e}")
         return False
 
-# 2. 로컬 또는 GitHub에서 이미지 로드 및 Base64 인코딩
-bg_images_encoded = []
-missing_files = []
-
-for i in range(1, st.session_state.num_items + 1):
-    file_name = f"L11-2-{i}.jpg"
+def load_single_image(file_name):
+    """GitHub 또는 로컬에서 단일 이미지를 읽어 Base64 문자열로 반환합니다."""
     file_path = f"L11-2/{file_name}"
-    
     repo = get_github_repo()
     bytes_data = None
     
@@ -75,24 +70,32 @@ for i in range(1, st.session_state.num_items + 1):
             
     if bytes_data:
         base64_encoded = base64.b64encode(bytes_data).decode("utf-8")
-        bg_images_encoded.append(f"data:image/jpeg;base64,{base64_encoded}")
-    else:
-        missing_files.append(file_path)
+        return f"data:image/jpeg;base64,{base64_encoded}"
+    return None
 
-# 3. 사이드바: 교사용 설정 및 이미지 파일 업로드 창
+# 2. 사이드바: 교사용 설정 및 모드 선택 창
 with st.sidebar:
     st.header("🔒 교사 설정 메뉴")
     password = st.text_input("관리자 암호", type="password")
     
     if password == "1234":
         st.success("인증 성공!")
-        st.subheader("⚙️ 게임 옵션 설정")
+        st.subheader("⚙️ 게임 방식 및 옵션 설정")
+        
+        st.session_state.game_mode = st.radio(
+            "🎴 카드 매칭 방식 선택",
+            ["같은 그림 복제 (1장씩 등록)", "다른 그림 연결 (A-B 짝짓기)"],
+            index=0 if st.session_state.game_mode == "같은 그림 복제 (1장씩 등록)" else 1
+        )
         
         st.session_state.num_items = st.number_input("🖼️ 카드 짝(Pair) 개수", min_value=2, max_value=20, value=st.session_state.num_items)
         st.session_state.preview_time = st.number_input("⏱️ 시작 시 카드 노출 시간 (초)", min_value=1, max_value=10, value=st.session_state.preview_time)
         
         st.subheader("📤 이미지 일괄 업로드")
-        st.markdown(f"**L11-2-1.jpg** 부터 **L11-2-{st.session_state.num_items}.jpg** 까지 해당하는 파일들을 아래에 한 번에 넣어주세요.")
+        if st.session_state.game_mode == "같은 그림 복제 (1장씩 등록)":
+            st.markdown(f"**L11-2-1.jpg** ~ **L11-2-{st.session_state.num_items}.jpg** 파일들을 한 번에 올려주세요.")
+        else:
+            st.markdown(f"**L11-2-1-a.jpg, L11-2-1-b.jpg** ~ **L11-2-{st.session_state.num_items}-a.jpg, L11-2-{st.session_state.num_items}-b.jpg** 파일들을 한 번에 올려주세요.")
         
         uploaded_files = st.file_uploader("이미지 파일 선택 (.jpg)", type=["jpg", "jpeg"], accept_multiple_files=True)
         
@@ -103,24 +106,49 @@ with st.sidebar:
                     file_bytes = uploaded_file.read()
                     if save_image_to_github(file_bytes, uploaded_file.name):
                         success_count += 1
-                st.success(f"총 {success_count}개의 파일이 GitHub 저장소에 복사되었습니다!")
+                st.success(f"총 {success_count}개의 파일이 GitHub 저장소에 안전하게 저장되었습니다!")
                 st.rerun()
                 
     elif password != "":
         st.error("암호가 틀렸습니다.")
+
+# 3. 선택된 모드에 따른 카드 쌍 데이터 구성
+pairs_data = []
+missing_files = []
+
+for i in range(1, st.session_state.num_items + 1):
+    if st.session_state.game_mode == "같은 그림 복제 (1장씩 등록)":
+        f_name = f"L11-2-{i}.jpg"
+        img_b64 = load_single_image(f_name)
+        if img_b64:
+            pairs_data.append({"id": i, "imgA": img_b64, "imgB": img_b64})
+        else:
+            missing_files.append(f"L11-2/{f_name}")
+    else:
+        f_name_a = f"L11-2-{i}-a.jpg"
+        f_name_b = f"L11-2-{i}-b.jpg"
+        img_a_b64 = load_single_image(f_name_a)
+        img_b_b64 = load_single_image(f_name_b)
+        
+        if img_a_b64 and img_b_b64:
+            pairs_data.append({"id": i, "imgA": img_a_b64, "imgB": img_b_b64})
+        else:
+            if not img_a_b64:
+                missing_files.append(f"L11-2/{f_name_a}")
+            if not img_b_b64:
+                missing_files.append(f"L11-2/{f_name_b}")
 
 st.title("🧠 Memory Match Game (L11-2)")
 
 if missing_files:
     st.warning(f"⚠️ 현재 일부 카드 이미지 파일({missing_files})이 준비되지 않았습니다. 관리자 창에서 업로드를 완료해 주세요.")
 else:
-    st.write(f"현재 이 게임은 **{st.session_state.num_items}쌍(총 {st.session_state.num_items * 2}장)**의 이미지 카드로 세팅되어 있습니다.")
+    st.write(f"현재 모드: **{st.session_state.game_mode}** | 총 **{st.session_state.num_items}쌍({st.session_state.num_items * 2}장)**의 카드가 준비되었습니다.")
 
-    js_images = json.dumps(bg_images_encoded)
+    js_pairs = json.dumps(pairs_data)
     preview_duration_ms = st.session_state.preview_time * 1000
 
-    # 💡 [중요] 아래 2부 코드 블록(html_code = f\"\"\")이 바로 이 자리에 이어져서 들어가야 합니다.
-    # 1부 코드의 하단에 바로 붙여넣는 스트링 변수 선언 시작부입니다.
+    # 💡 [중요] 아래 2부 코드 블록(html_code = f\"\"\")을 이 자리에 바로 이어 붙여주세요.
     html_code = f"""
     <!DOCTYPE html>
     <html>
@@ -157,8 +185,8 @@ else:
         <div class="grid-container" id="cardGrid"></div>
 
         <script>
-            const originImages = {js_images};
-            const numItems = originImages.length;
+            const pairsData = {js_pairs};
+            const numItems = pairsData.length;
             
             let cardsData = [];
             let flippedCards = [];
@@ -173,10 +201,11 @@ else:
                 matchedCount = 0;
                 document.getElementById('status').innerText = `짝 맞춘 횟수: 0 / ${{numItems}}`;
                 
-                for(let i=0; i<numItems; i++) {{
-                    cardsData.push({{ id: i, src: originImages[i] }});
-                    cardsData.push({{ id: i, src: originImages[i] }});
-                }}
+                // 각 짝의 imgA와 imgB를 동일한 pairId로 묶어 보드에 추가
+                pairsData.forEach(pair => {{
+                    cardsData.push({{ pairId: pair.id, src: pair.imgA }});
+                    cardsData.push({{ pairId: pair.id, src: pair.imgB }});
+                }});
                 
                 cardsData.sort(() => Math.random() - 0.5);
                 
@@ -184,7 +213,7 @@ else:
                     const card = document.createElement('div');
                     card.className = 'card';
                     card.dataset.index = index;
-                    card.dataset.id = data.id;
+                    card.dataset.pairId = data.pairId;
                     card.onclick = () => flipCard(card);
                     
                     card.innerHTML = `
@@ -228,7 +257,8 @@ else:
                     const card1 = flippedCards[0];
                     const card2 = flippedCards[1];
                     
-                    if (card1.dataset.id === card2.dataset.id) {{
+                    // 그림이 다르더라도 같은 번호(pairId)면 정답 처리
+                    if (card1.dataset.pairId === card2.dataset.pairId) {{
                         card1.classList.add('matched');
                         card2.classList.add('matched');
                         matchedCount++;
@@ -261,6 +291,4 @@ else:
     </html>
     """
     
-    # 완성된 HTML 컴포넌트를 Streamlit 화면에 바인딩출력
     components.html(html_code, height=620, scrolling=False)
-
