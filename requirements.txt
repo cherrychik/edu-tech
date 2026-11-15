@@ -1,2 +1,6 @@
+PyGithub
 matplotlib
 numpy
+pandas
+Pillow
+openpyxl
