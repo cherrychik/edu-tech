@@ -149,7 +149,7 @@ else:
     preview_duration_ms = st.session_state.preview_time * 1000
 
     # 💡 [중요] 아래 2부 코드 블록(html_code = f\"\"\")을 이 자리에 바로 이어 붙여주세요.
-      html_code = f"""
+    html_code = f"""
     <!DOCTYPE html>
     <html>
     <head>
