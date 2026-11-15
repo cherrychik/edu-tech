@@ -149,7 +149,7 @@ else:
     preview_duration_ms = st.session_state.preview_time * 1000
 
     # 💡 [중요] 아래 2부 코드 블록(html_code = f\"\"\")을 이 자리에 바로 이어 붙여주세요.
-    html_code = f"""
+      html_code = f"""
     <!DOCTYPE html>
     <html>
     <head>
@@ -175,6 +175,11 @@ else:
             .control-btn {{ background-color: #FF4B4B; color: white; border: none; padding: 12px 30px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-bottom: 20px; width: 100%; max-width: 500px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
             .control-btn:active {{ transform: scale(0.98); }}
             .control-btn:disabled {{ background-color: #ccc; cursor: not-allowed; }}
+
+            /* 하단 다시 시작하기 버튼 스타일 */
+            .reset-btn {{ background-color: #4A5568; color: white; border: none; padding: 12px 30px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 25px; width: 100%; max-width: 500px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+            .reset-btn:hover {{ background-color: #2D3748; }}
+            .reset-btn:active {{ transform: scale(0.98); }}
         </style>
     </head>
     <body>
@@ -184,6 +189,9 @@ else:
         
         <div class="grid-container" id="cardGrid"></div>
 
+        <!-- 카드 보드 아래쪽 다시 시작하기 버튼 -->
+        <button class="reset-btn" id="resetBtn" onclick="restartGame()">🔄 다시 시작하기 (카드 새로 섞기)</button>
+
         <script>
             const pairsData = {js_pairs};
             const numItems = pairsData.length;
@@ -192,22 +200,33 @@ else:
             let flippedCards = [];
             let matchedCount = 0;
             let isLock = true;
+            let previewTimer = null;
 
             function setupBoard() {{
+                // 진행 중인 타이머가 있다면 초기화
+                if (previewTimer) {{
+                    clearTimeout(previewTimer);
+                    previewTimer = null;
+                }}
+
                 const grid = document.getElementById('cardGrid');
                 grid.innerHTML = '';
                 cardsData = [];
                 flippedCards = [];
                 matchedCount = 0;
+                isLock = true;
                 document.getElementById('status').innerText = `짝 맞춘 횟수: 0 / ${{numItems}}`;
                 
-                // 각 짝의 imgA와 imgB를 동일한 pairId로 묶어 보드에 추가
                 pairsData.forEach(pair => {{
                     cardsData.push({{ pairId: pair.id, src: pair.imgA }});
                     cardsData.push({{ pairId: pair.id, src: pair.imgB }});
                 }});
                 
-                cardsData.sort(() => Math.random() - 0.5);
+                // Fisher-Yates 알고리즘으로 매번 완벽하게 무작위 셔플
+                for (let i = cardsData.length - 1; i > 0; i--) {{
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [cardsData[i], cardsData[j]] = [cardsData[j], cardsData[i]];
+                }}
                 
                 cardsData.forEach((data, index) => {{
                     const card = document.createElement('div');
@@ -229,8 +248,6 @@ else:
             }}
 
             function startGame() {{
-                if(!isLock && flippedCards.length === 0 && matchedCount === 0) return;
-                
                 setupBoard();
                 const startBtn = document.getElementById('startBtn');
                 startBtn.disabled = true;
@@ -239,11 +256,16 @@ else:
                 const cards = document.querySelectorAll('.card');
                 cards.forEach(card => card.classList.add('preview'));
                 
-                setTimeout(() => {{
+                previewTimer = setTimeout(() => {{
                     cards.forEach(card => card.classList.remove('preview'));
                     isLock = false;
                     startBtn.innerText = "🔥 게임 진행 중!";
                 }}, {preview_duration_ms});
+            }}
+
+            // 하단 '다시 시작하기' 버튼 클릭 시 실행 (새로 섞고 즉시 미리보기 시작)
+            function restartGame() {{
+                startGame();
             }}
 
             function flipCard(card) {{
@@ -257,7 +279,6 @@ else:
                     const card1 = flippedCards[0];
                     const card2 = flippedCards[1];
                     
-                    // 그림이 다르더라도 같은 번호(pairId)면 정답 처리
                     if (card1.dataset.pairId === card2.dataset.pairId) {{
                         card1.classList.add('matched');
                         card2.classList.add('matched');
@@ -271,7 +292,7 @@ else:
                             setTimeout(() => {{
                                 alert("🎉 축하합니다! 모든 짝을 찾았습니다!");
                                 document.getElementById('startBtn').disabled = false;
-                                document.getElementById('startBtn').innerText = "🎮 게임 재시작";
+                                document.getElementById('startBtn').innerText = "🎮 게임 시작! (위치 기억하기)";
                             }}, 300);
                         }}
                     }} else {{
@@ -291,4 +312,5 @@ else:
     </html>
     """
     
-    components.html(html_code, height=620, scrolling=False)
+    # 하단 버튼이 잘리지 않도록 높이를 620에서 680으로 여유 있게 조정
+    components.html(html_code, height=680, scrolling=False)
