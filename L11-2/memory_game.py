@@ -9,17 +9,18 @@ from github import GithubException
 # 0. Streamlit 기본 페이지 설정
 st.set_page_config(page_title="우리 반 맞춤형 메모리 게임", layout="centered")
 
-# 1. 깃허브 연동 및 설정/이미지 입출력 함수
+# 1. 깃허브 연동 및 상태 진단 함수
 def get_github_repo():
     try:
         token = st.secrets.get("GITHUB_TOKEN")
         repo_name = st.secrets.get("GITHUB_REPO")
         if not token or not repo_name:
-            return None
+            return None, "Streamlit Secrets에 GITHUB_TOKEN 또는 GITHUB_REPO가 설정되지 않았습니다."
         g = Github(token)
-        return g.get_repo(repo_name)
-    except Exception:
-        return None
+        repo = g.get_repo(repo_name)
+        return repo, "연결 성공"
+    except Exception as e:
+        return None, f"GitHub 연결 오류: {str(e)}"
 
 def load_config_from_github():
     """GitHub의 L11-2/config.json에서 모든 선생님이 공유할 게임 설정을 불러옵니다."""
@@ -28,7 +29,7 @@ def load_config_from_github():
         "num_items": 4,
         "preview_time": 3
     }
-    repo = get_github_repo()
+    repo, _ = get_github_repo()
     config_path = "L11-2/config.json"
     
     if repo is not None:
@@ -38,23 +39,17 @@ def load_config_from_github():
         except Exception:
             pass
             
-    if os.path.exists(config_path):
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-            
     return default_config
 
 def save_config_to_github(config_data):
     """변경된 게임 설정을 GitHub의 L11-2/config.json에 영구 저장합니다."""
-    repo = get_github_repo()
+    repo, msg = get_github_repo()
+    if repo is None:
+        st.error(f"저장 불가: {msg}")
+        return False
+
     config_path = "L11-2/config.json"
     json_str = json.dumps(config_data, ensure_ascii=False, indent=2)
-    
-    if repo is None:
-        os.makedirs("L11-2", exist_ok=True)
-        with open(config_path, "w", encoding="utf-8") as f:
-            f.write(json_str)
-        return True
 
     try:
         try:
@@ -63,21 +58,21 @@ def save_config_to_github(config_data):
         except GithubException as e:
             if e.status == 404:
                 repo.create_file(config_path, "Create game config via Admin", json_str)
+            else:
+                raise e
         return True
     except Exception as e:
-        st.error(f"GitHub 설정 저장 실패: {e}")
+        st.error(f"GitHub 설정 저장 실패 (권한 확인 필요): {e}")
         return False
 
 def save_image_to_github(file_bytes, file_name):
     """업로드된 이미지 파일을 GitHub의 L11-2 폴더 안에 영구 저장합니다."""
-    repo = get_github_repo()
-    file_path = f"L11-2/{file_name}"
-    
+    repo, msg = get_github_repo()
     if repo is None:
-        os.makedirs("L11-2", exist_ok=True)
-        with open(file_path, "wb") as f:
-            f.write(file_bytes)
-        return True
+        st.error(f"저장 불가: {msg}")
+        return False
+
+    file_path = f"L11-2/{file_name}"
 
     try:
         try:
@@ -86,31 +81,26 @@ def save_image_to_github(file_bytes, file_name):
         except GithubException as e:
             if e.status == 404:
                 repo.create_file(file_path, f"Create {file_name} via Admin", file_bytes)
+            else:
+                raise e
         return True
     except Exception as e:
         st.error(f"GitHub 이미지 저장 실패 ({file_name}): {e}")
         return False
 
 def load_single_image(file_name):
-    """GitHub 또는 로컬에서 단일 이미지를 읽어 Base64 문자열로 반환합니다."""
+    """GitHub에서 직접 이미지를 읽어 Base64 문자열로 반환합니다."""
     file_path = f"L11-2/{file_name}"
-    repo = get_github_repo()
-    bytes_data = None
+    repo, _ = get_github_repo()
     
     if repo is not None:
         try:
             content = repo.get_contents(file_path)
             bytes_data = content.decoded_content
+            base64_encoded = base64.b64encode(bytes_data).decode("utf-8")
+            return f"data:image/jpeg;base64,{base64_encoded}"
         except Exception:
             pass
-            
-    if bytes_data is None and os.path.exists(file_path):
-        with open(file_path, "rb") as f:
-            bytes_data = f.read()
-            
-    if bytes_data:
-        base64_encoded = base64.b64encode(bytes_data).decode("utf-8")
-        return f"data:image/jpeg;base64,{base64_encoded}"
     return None
 
 # 서버에 저장된 공통 설정 불러오기
@@ -122,7 +112,13 @@ with st.sidebar:
     password = st.text_input("관리자 암호", type="password")
     
     if password == "1234":
-        st.success("인증 성공!")
+        # GitHub 연결 상태 즉시 진단 표시
+        repo_check, status_msg = get_github_repo()
+        if repo_check is not None:
+            st.success(f"🟢 GitHub 영구 저장소 연결됨 ({repo_check.full_name})")
+        else:
+            st.error(f"🔴 GitHub 연결 안 됨: {status_msg}")
+
         st.subheader("⚙️ 공통 게임 옵션 설정")
         
         selected_mode = st.radio(
@@ -143,7 +139,6 @@ with st.sidebar:
         uploaded_files = st.file_uploader("이미지 파일 선택 (.jpg)", type=["jpg", "jpeg"], accept_multiple_files=True)
         
         if st.button("💾 설정 및 이미지 GitHub에 영구 저장"):
-            # 1) 게임 옵션 설정 저장
             new_config = {
                 "game_mode": selected_mode,
                 "num_items": selected_num,
@@ -151,9 +146,8 @@ with st.sidebar:
             }
             config_saved = save_config_to_github(new_config)
             
-            # 2) 새로 업로드한 파일이 있다면 함께 저장
             img_count = 0
-            if uploaded_files:
+            if uploaded_files and config_saved:
                 for uploaded_file in uploaded_files:
                     file_bytes = uploaded_file.read()
                     if save_image_to_github(file_bytes, uploaded_file.name):
@@ -163,13 +157,13 @@ with st.sidebar:
                 if img_count > 0:
                     st.success(f"게임 설정과 {img_count}개의 이미지가 GitHub에 영구 저장되었습니다!")
                 else:
-                    st.success("게임 설정이 GitHub에 영구 저장되었습니다! (기존 이미지 유지)")
+                    st.success("게임 설정이 GitHub에 영구 저장되었습니다!")
                 st.rerun()
                 
     elif password != "":
         st.error("암호가 틀렸습니다.")
 
-# 3. 저장된 공통 설정(shared_config)을 기준으로 카드 쌍 데이터 구성
+# 3. 저장된 공통 설정을 기준으로 카드 쌍 데이터 구성
 current_mode = shared_config.get("game_mode", "다른 그림 연결 (A-B 짝짓기)")
 current_num = shared_config.get("num_items", 4)
 current_time = shared_config.get("preview_time", 3)
@@ -202,7 +196,7 @@ for i in range(1, current_num + 1):
 st.title("🧠 Memory Match Game (L11-2)")
 
 if missing_files:
-    st.warning(f"⚠️ 현재 일부 카드 이미지 파일({missing_files})이 준비되지 않았습니다. 관리자 창에서 업로드를 완료해 주세요.")
+    st.warning(f"⚠️ 현재 일부 카드 이미지 파일({missing_files})이 GitHub에 없습니다. 관리자 창에서 업로드를 완료해 주세요.")
 else:
     st.write(f"현재 모드: **{current_mode}** | 총 **{current_num}쌍({current_num * 2}장)**의 카드가 준비되었습니다.")
 
