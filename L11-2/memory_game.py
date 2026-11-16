@@ -3,205 +3,77 @@ import streamlit.components.v1 as components
 import json
 import os
 import base64
-from github import Github
-from github import GithubException
 
-# 0. Streamlit 기본 페이지 설정
+# 0. Streamlit 기본 페이지 및 세션 초기화
 st.set_page_config(page_title="우리 반 맞춤형 메모리 게임", layout="centered")
 
-# 1. 깃허브 연동 및 상태 진단 함수
-def get_github_repo():
-    try:
-        token = st.secrets.get("GITHUB_TOKEN")
-        repo_name = st.secrets.get("GITHUB_REPO")
-        if not token or not repo_name:
-            return None, "Streamlit Secrets에 GITHUB_TOKEN 또는 GITHUB_REPO가 설정되지 않았습니다."
-        g = Github(token)
-        repo = g.get_repo(repo_name)
-        return repo, "연결 성공"
-    except Exception as e:
-        return None, f"GitHub 연결 오류: {str(e)}"
+if "preview_time" not in st.session_state:
+    st.session_state.preview_time = 3  # 기본 카드 노출 시간 (초)
 
-def load_config_from_github():
-    """GitHub의 L11-2/config.json에서 모든 선생님이 공유할 게임 설정을 불러옵니다."""
-    default_config = {
-        "game_mode": "다른 그림 연결 (A-B 짝짓기)",
-        "num_items": 4,
-        "preview_time": 3
-    }
-    repo, _ = get_github_repo()
-    config_path = "L11-2/config.json"
-    
-    if repo is not None:
-        try:
-            content = repo.get_contents(config_path)
-            return json.loads(content.decoded_content.decode("utf-8"))
-        except Exception:
-            pass
-            
-    return default_config
-
-def save_config_to_github(config_data):
-    """변경된 게임 설정을 GitHub의 L11-2/config.json에 영구 저장합니다."""
-    repo, msg = get_github_repo()
-    if repo is None:
-        st.error(f"저장 불가: {msg}")
-        return False
-
-    config_path = "L11-2/config.json"
-    json_str = json.dumps(config_data, ensure_ascii=False, indent=2)
-
-    try:
-        try:
-            content = repo.get_contents(config_path)
-            repo.update_file(config_path, "Update game config via Admin", json_str, content.sha)
-        except GithubException as e:
-            if e.status == 404:
-                repo.create_file(config_path, "Create game config via Admin", json_str)
-            else:
-                raise e
-        return True
-    except Exception as e:
-        st.error(f"GitHub 설정 저장 실패 (권한 확인 필요): {e}")
-        return False
-
-def save_image_to_github(file_bytes, file_name):
-    """업로드된 이미지 파일을 GitHub의 L11-2 폴더 안에 영구 저장합니다."""
-    repo, msg = get_github_repo()
-    if repo is None:
-        st.error(f"저장 불가: {msg}")
-        return False
-
-    file_path = f"L11-2/{file_name}"
-
-    try:
-        try:
-            content = repo.get_contents(file_path)
-            repo.update_file(file_path, f"Update {file_name} via Admin", file_bytes, content.sha)
-        except GithubException as e:
-            if e.status == 404:
-                repo.create_file(file_path, f"Create {file_name} via Admin", file_bytes)
-            else:
-                raise e
-        return True
-    except Exception as e:
-        st.error(f"GitHub 이미지 저장 실패 ({file_name}): {e}")
-        return False
-
+# 1. 로컬(깃허브) 폴더에서 단일 이미지 읽기 함수
 def load_single_image(file_name):
-    """GitHub에서 직접 이미지를 읽어 Base64 문자열로 반환합니다."""
     file_path = f"L11-2/{file_name}"
-    repo, _ = get_github_repo()
-    
-    if repo is not None:
-        try:
-            content = repo.get_contents(file_path)
-            bytes_data = content.decoded_content
+    if os.path.exists(file_path):
+        with open(file_path, "rb") as f:
+            bytes_data = f.read()
             base64_encoded = base64.b64encode(bytes_data).decode("utf-8")
-            return f"data:image/jpeg;base64,{base64_encoded}"
-        except Exception:
-            pass
+            ext = "png" if file_name.lower().endswith(".png") else "jpeg"
+            return f"data:image/{ext};base64,{base64_encoded}"
     return None
 
-# 서버에 저장된 공통 설정 불러오기
-shared_config = load_config_from_github()
-
-# 2. 사이드바: 교사용 설정 및 일괄 저장 창
+# 2. 사이드바: 교사용 노출 시간 설정 창 (비밀번호 입력 시 노출)
 with st.sidebar:
     st.header("🔒 교사 설정 메뉴")
     password = st.text_input("관리자 암호", type="password")
     
     if password == "1234":
-        # GitHub 연결 상태 즉시 진단 표시
-        repo_check, status_msg = get_github_repo()
-        if repo_check is not None:
-            st.success(f"🟢 GitHub 영구 저장소 연결됨 ({repo_check.full_name})")
-        else:
-            st.error(f"🔴 GitHub 연결 안 됨: {status_msg}")
-
-        st.subheader("⚙️ 공통 게임 옵션 설정")
-        
-        selected_mode = st.radio(
-            "🎴 카드 매칭 방식 선택",
-            ["같은 그림 복제 (1장씩 등록)", "다른 그림 연결 (A-B 짝짓기)"],
-            index=0 if shared_config.get("game_mode") == "같은 그림 복제 (1장씩 등록)" else 1
+        st.success("인증 성공!")
+        st.subheader("⚙️ 게임 옵션 설정")
+        st.session_state.preview_time = st.number_input(
+            "⏱️ 시작 시 카드 노출 시간 (초)", 
+            min_value=1, 
+            max_value=10, 
+            value=st.session_state.preview_time
         )
-        
-        selected_num = st.number_input("🖼️ 카드 짝(Pair) 개수", min_value=2, max_value=20, value=shared_config.get("num_items", 4))
-        selected_time = st.number_input("⏱️ 시작 시 카드 노출 시간 (초)", min_value=1, max_value=10, value=shared_config.get("preview_time", 3))
-        
-        st.subheader("📤 새 이미지 업로드 (선택 사항)")
-        if selected_mode == "같은 그림 복제 (1장씩 등록)":
-            st.markdown(f"**L11-2-1.jpg** ~ **L11-2-{selected_num}.jpg** 파일들을 올려주세요.")
-        else:
-            st.markdown(f"**L11-2-1-a.jpg, L11-2-1-b.jpg** ~ **L11-2-{selected_num}-a.jpg, L11-2-{selected_num}-b.jpg** 파일들을 올려주세요.")
-        
-        uploaded_files = st.file_uploader("이미지 파일 선택 (.jpg)", type=["jpg", "jpeg"], accept_multiple_files=True)
-        
-        if st.button("💾 설정 및 이미지 GitHub에 영구 저장"):
-            new_config = {
-                "game_mode": selected_mode,
-                "num_items": selected_num,
-                "preview_time": selected_time
-            }
-            config_saved = save_config_to_github(new_config)
-            
-            img_count = 0
-            if uploaded_files and config_saved:
-                for uploaded_file in uploaded_files:
-                    file_bytes = uploaded_file.read()
-                    if save_image_to_github(file_bytes, uploaded_file.name):
-                        img_count += 1
-                        
-            if config_saved:
-                if img_count > 0:
-                    st.success(f"게임 설정과 {img_count}개의 이미지가 GitHub에 영구 저장되었습니다!")
-                else:
-                    st.success("게임 설정이 GitHub에 영구 저장되었습니다!")
-                st.rerun()
-                
     elif password != "":
         st.error("암호가 틀렸습니다.")
 
-# 3. 저장된 공통 설정을 기준으로 카드 쌍 데이터 구성
-current_mode = shared_config.get("game_mode", "다른 그림 연결 (A-B 짝짓기)")
-current_num = shared_config.get("num_items", 4)
-current_time = shared_config.get("preview_time", 3)
-
+# 3. L11-2 폴더 안의 그림 파일을 순서대로 탐색하여 자동 쌍 구성
 pairs_data = []
-missing_files = []
+current_mode = ""
 
-for i in range(1, current_num + 1):
-    if current_mode == "같은 그림 복제 (1장씩 등록)":
-        f_name = f"L11-2-{i}.jpg"
-        img_b64 = load_single_image(f_name)
-        if img_b64:
-            pairs_data.append({"id": i, "imgA": img_b64, "imgB": img_b64})
-        else:
-            missing_files.append(f"L11-2/{f_name}")
-    else:
-        f_name_a = f"L11-2-{i}-a.jpg"
-        f_name_b = f"L11-2-{i}-b.jpg"
-        img_a_b64 = load_single_image(f_name_a)
-        img_b_b64 = load_single_image(f_name_b)
+# 1번부터 최대 20번까지 순서대로 파일 존재 여부 확인
+for i in range(1, 21):
+    # 1순위: 다른 그림 연결 모드 확인 (L11-2-1-a.jpg & L11-2-1-b.jpg)
+    img_a = load_single_image(f"L11-2-{i}-a.jpg") or load_single_image(f"L11-2-{i}-a.png")
+    img_b = load_single_image(f"L11-2-{i}-b.jpg") or load_single_image(f"L11-2-{i}-b.png")
+    
+    if img_a and img_b:
+        pairs_data.append({"id": i, "imgA": img_a, "imgB": img_b})
+        current_mode = "다른 그림 연결 (A-B 짝짓기)"
+        continue
         
-        if img_a_b64 and img_b_b64:
-            pairs_data.append({"id": i, "imgA": img_a_b64, "imgB": img_b_b64})
-        else:
-            if not img_a_b64:
-                missing_files.append(f"L11-2/{f_name_a}")
-            if not img_b_b64:
-                missing_files.append(f"L11-2/{f_name_b}")
+    # 2순위: 같은 그림 복제 모드 확인 (L11-2-1.jpg)
+    img_single = load_single_image(f"L11-2-{i}.jpg") or load_single_image(f"L11-2-{i}.png")
+    if img_single:
+        pairs_data.append({"id": i, "imgA": img_single, "imgB": img_single})
+        current_mode = "같은 그림 복제"
+        continue
+        
+    # 더 이상 연속된 번호의 파일이 없으면 탐색 종료
+    break
+
+current_num = len(pairs_data)
 
 st.title("🧠 Memory Match Game (L11-2)")
 
-if missing_files:
-    st.warning(f"⚠️ 현재 일부 카드 이미지 파일({missing_files})이 GitHub에 없습니다. 관리자 창에서 업로드를 완료해 주세요.")
+if current_num == 0:
+    st.warning("⚠️ 깃허브 `L11-2` 폴더 안에 그림 파일(`L11-2-1-a.jpg`, `L11-2-1-b.jpg` 또는 `L11-2-1.jpg`)을 넣어주세요.")
 else:
-    st.write(f"현재 모드: **{current_mode}** | 총 **{current_num}쌍({current_num * 2}장)**의 카드가 준비되었습니다.")
+    st.write(f"현재 모드: **{current_mode}** | 총 **{current_num}쌍({current_num * 2}장)**의 카드가 자동으로 인식되었습니다.")
 
     js_pairs = json.dumps(pairs_data)
-    preview_duration_ms = current_time * 1000
+    preview_duration_ms = st.session_state.preview_time * 1000
 
     # 💡 바로 이 아래에 기존 2부 코드(html_code = f\"\"\")가 스페이스 4칸 위치로 이어집니다.
     html_code = f"""
